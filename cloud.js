@@ -4,6 +4,7 @@ const SB_URL = 'https://jsrwuelkzmpfmtpdcgkr.supabase.co';
 const SB_KEY = 'sb_publishable_K23e-epSxsLBuLiukePhgA_yQl7zxDE';
 const sb = supabase.createClient(SB_URL, SB_KEY);
 const legacy = JSON.parse(localStorage.getItem(KEY) || 'null'); // data from the old browser-only version
+S = freshState(); // Cloud version always renders live Supabase data, never stale local-only browser data
 const OWNER_EMAIL = 'bryanleesugue79@gmail.com';
 const isOwnerEmail = e => String(e || '').trim().toLowerCase() === OWNER_EMAIL;
 let me = null, session = null;
@@ -52,6 +53,7 @@ async function loadAll() {
         notes: t.notes || '',
         status: t.status,
         receipt: t.receipt_path || '',
+        createdAt: t.created_at || '',
         log: [`Created ${new Date(t.created_at).toLocaleString()}`, ...(logs[t.id] || [])]
       };
     })
@@ -178,7 +180,10 @@ window.saveBatchOfferings = async (entries, deletedIds = []) => {
           status: 'approved'
         };
       });
-      check(await sb.from('transactions').insert(rows));
+      const inserted = check(await sb.from('transactions').insert(rows).select('id'));
+      if (inserted && inserted.length && typeof window.recordUploadBatch === 'function') {
+        window.recordUploadBatch(inserted.map(r => r.id), `Upload (${inserted.length})`);
+      }
     }
     if (entries.length && entries[0].date) {
       localStorage.setItem('btc-active-month', entries[0].date.slice(0, 7));
@@ -227,6 +232,26 @@ catForm = () => {
       closeModal(); await refresh();
     } catch (err) { fail(err); busy(form, false); }
   };
+};
+
+window._doDeleteTransactions = async function(ids) {
+  try {
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      await sb.from('audit_log').delete().in('tx_id', chunk);
+      await sb.from('transactions').delete().in('id', chunk);
+    }
+    // Fallback if DELETE RLS policy isn't active: void any remaining rows
+    const { data: leftover } = await sb.from('transactions').select('id').in('id', ids).neq('status', 'void');
+    if (leftover && leftover.length) {
+      check(await sb.from('transactions').update({ status: 'void' }).in('id', leftover.map(r => r.id)));
+    }
+    ids.forEach(id => { if (typeof selectedTxIds !== 'undefined') selectedTxIds.delete(id); });
+    await refresh();
+    if (typeof showToast === 'function') showToast(`🗑️ Deleted ${ids.length} ${ids.length === 1 ? 'transaction' : 'transactions'}`);
+  } catch (err) {
+    fail(err);
+  }
 };
 
 window._doClearAllData = async function() {
@@ -433,16 +458,51 @@ sb.auth.onAuthStateChange((event, s) => {
     $('#auth-wrap').classList.remove('open');
     openResetPasswordModal(s);
   } else if (event === 'SIGNED_OUT') {
-    me = null; session = null; $('#auth-wrap').classList.add('open');
-  } else if (event === 'SIGNED_IN' && (!session || session.user.id !== s.user.id)) {
+    me = null; session = null; S = freshState(); render(); $('#auth-wrap').classList.add('open');
+  } else if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && s && (!session || session.user.id !== s.user.id)) {
     setTimeout(() => enter(s), 0);
   }
 });
 sb.auth.getSession().then(({ data }) => {
-  if (!data.session) $('#auth-wrap').classList.add('open');
-  else if (_startedInRecovery && !_recoveryModalShown) {
-    _recoveryModalShown = true;
-    $('#auth-wrap').classList.remove('open');
-    openResetPasswordModal(data.session);
+  if (!data.session) {
+    $('#auth-wrap').classList.add('open');
+  } else {
+    if (!session) enter(data.session);
+    if (_startedInRecovery && !_recoveryModalShown) {
+      _recoveryModalShown = true;
+      $('#auth-wrap').classList.remove('open');
+      openResetPasswordModal(data.session);
+    }
   }
 });
+
+/* Auto-sync with Supabase whenever you switch back to the app on phone or laptop */
+let _lastSyncAt = 0;
+async function syncNow(showMsg = false) {
+  if (!session) return;
+  const now = Date.now();
+  if (!showMsg && now - _lastSyncAt < 3000) return;
+  _lastSyncAt = now;
+  try {
+    await refresh();
+    if (showMsg && typeof showToast === 'function') showToast('✔ Synced with cloud');
+  } catch (err) {
+    if (showMsg) fail(err);
+  }
+}
+window.syncNow = syncNow;
+document.addEventListener('visibilitychange', () => { if (!document.hidden && session) syncNow(false); });
+window.addEventListener('focus', () => { if (session) syncNow(false); });
+
+/* Add a 1-tap Sync button to the topbar in cloud mode */
+const topActions = document.querySelector('.topbar .actions');
+if (topActions && !document.getElementById('cloud-sync-btn')) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.id = 'cloud-sync-btn';
+  b.className = 'btn ghost';
+  b.textContent = '🔄 Sync';
+  b.title = 'Refresh latest data from Supabase';
+  b.onclick = () => syncNow(true);
+  topActions.insertBefore(b, topActions.firstChild);
+}

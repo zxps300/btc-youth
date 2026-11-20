@@ -32,7 +32,8 @@ S.incomeCats ??= [...DEFAULT_INCOME_CATS]; S.expenseCats ??= [...DEFAULT_EXPENSE
 if (!S.incomeCats.includes('Monthly Allowance')) S.incomeCats.splice(3, 0, 'Monthly Allowance');
 if (!S.expenseCats.includes('Monthly Allowance')) S.expenseCats.unshift('Monthly Allowance');
 
-let view = 'monthly', filter = { q: '', type: '', event: '', allowanceOnly: false }, period = 'all';
+let view = 'monthly', filter = { q: '', type: '', event: '', allowanceOnly: false, sort: 'date', recentOnly: false }, period = 'all';
+let selectedTxIds = new Set();
 let activeMonth = today().slice(0, 7);
 let reportMode = localStorage.getItem('btc-rep-mode') || 'monthly'; // 'monthly' | 'annual'
 let reportMonth = localStorage.getItem('btc-rep-month') || '';
@@ -473,6 +474,84 @@ window._doClearAllData = async function() {
   closeModal();
   save();
   showToast('✔ All data cleared');
+};
+
+window.recordUploadBatch = function(ids, label) {
+  if (!ids || !ids.length) return;
+  localStorage.setItem('btc-last-upload-batch', JSON.stringify({
+    ids,
+    label: label || `Upload (${ids.length})`,
+    at: new Date().toISOString()
+  }));
+};
+
+function getRecentUploadIds() {
+  const activeIds = new Set(S.transactions.filter(t => t.status !== 'void').map(t => t.id));
+  try {
+    const saved = JSON.parse(localStorage.getItem('btc-last-upload-batch') || 'null');
+    if (saved && Array.isArray(saved.ids)) {
+      const stillThere = saved.ids.filter(id => activeIds.has(id));
+      if (stillThere.length) return stillThere;
+    }
+  } catch (_) {}
+  // Fallback for uploads made before batch tracking: group entries within 3 minutes of the latest createdAt
+  const withTs = S.transactions
+    .filter(t => t.status !== 'void' && t.createdAt)
+    .map(t => ({ id: t.id, ts: Date.parse(t.createdAt) }))
+    .filter(x => isFinite(x.ts))
+    .sort((a, b) => b.ts - a.ts);
+  if (!withTs.length) return [];
+  const newest = withTs[0].ts;
+  return withTs.filter(x => newest - x.ts <= 3 * 60 * 1000).map(x => x.id);
+}
+
+window._doDeleteTransactions = async function(ids) {
+  const delSet = new Set(ids);
+  S.transactions = S.transactions.filter(t => !delSet.has(t.id));
+  ids.forEach(id => selectedTxIds.delete(id));
+  save();
+  showToast(`🗑️ Deleted ${ids.length} ${ids.length === 1 ? 'transaction' : 'transactions'}`);
+};
+
+window.deleteSelectedTxs = async function(idsArg) {
+  const ids = Array.isArray(idsArg) ? idsArg : [...selectedTxIds];
+  if (!ids.length) return;
+  if (!confirm(`Permanently delete ${ids.length} ${ids.length === 1 ? 'transaction' : 'transactions'}? This cannot be undone.`)) return;
+  await window._doDeleteTransactions(ids);
+};
+
+window.toggleTxSelect = function(id, checked) {
+  if (checked) selectedTxIds.add(id);
+  else selectedTxIds.delete(id);
+  render();
+};
+
+window.toggleSelectAllVisible = function(checked) {
+  const boxes = [...document.querySelectorAll('.tx-sel-chk')];
+  boxes.forEach(b => {
+    if (checked) selectedTxIds.add(b.dataset.id);
+    else selectedTxIds.delete(b.dataset.id);
+  });
+  render();
+};
+
+window.selectRecentUpload = function() {
+  const recent = getRecentUploadIds();
+  if (!recent.length) {
+    showToast('No recent upload found');
+    return;
+  }
+  filter.sort = 'recent';
+  filter.recentOnly = true;
+  selectedTxIds = new Set(recent);
+  render();
+  showToast(`Selected ${recent.length} recently uploaded ${recent.length === 1 ? 'entry' : 'entries'}`);
+};
+
+window.clearTxSelection = function() {
+  selectedTxIds.clear();
+  filter.recentOnly = false;
+  render();
 };
 
 window.clearAllData = function() {
@@ -933,6 +1012,7 @@ window.saveBatchOfferings = async function(entries, deletedIds = []) {
   if (deletedIds && deletedIds.length) {
     S.transactions = S.transactions.filter(t => !deletedIds.includes(t.id));
   }
+  const createdIds = [];
 
   for (const item of entries) {
     let notes = item.notes || '';
@@ -953,8 +1033,9 @@ window.saveBatchOfferings = async function(entries, deletedIds = []) {
         continue;
       }
     }
+    const newId = uid();
     S.transactions.push({
-      id: uid(),
+      id: newId,
       type: item.type || 'income',
       fund: item.fund || 'general',
       date: item.date,
@@ -965,8 +1046,13 @@ window.saveBatchOfferings = async function(entries, deletedIds = []) {
       notes,
       status: 'approved',
       receipt: '',
+      createdAt: new Date().toISOString(),
       log: [`Created via Monthly Offerings on ${new Date().toLocaleString()}`]
     });
+    createdIds.push(newId);
+  }
+  if (createdIds.length) {
+    window.recordUploadBatch(createdIds, `Batch (${createdIds.length})`);
   }
   if (entries.length && entries[0].date) {
     localStorage.setItem('btc-active-month', entries[0].date.slice(0, 7));
@@ -1664,18 +1750,20 @@ function chart() {
   return out + '</svg><p class="mute">🟦 Income &nbsp; 🟧 Expenses</p>';
 }
 
-function txRows(list, actions = true) {
+function txRows(list, actions = true, selectable = false) {
   if (!list.length) return '<div class="empty">No transactions yet.</div>';
-  return `<table><tr><th>Date</th><th>Type</th><th>Category</th><th>Fund</th><th>Event</th><th>Amount</th><th>Status</th>${actions ? '<th></th>' : ''}</tr>` +
+  const allChecked = selectable && list.length > 0 && list.every(t => selectedTxIds.has(t.id));
+  return `<table><tr>${selectable ? `<th style="width:32px"><input type="checkbox" ${allChecked ? 'checked' : ''} onchange="toggleSelectAllVisible(this.checked)" style="width:auto" title="Select all shown"></th>` : ''}<th>Date</th><th>Type</th><th>Category</th><th>Fund</th><th>Event</th><th>Amount</th><th>Status</th>${actions ? '<th></th>' : ''}</tr>` +
     list.map(t => {
       const isAllow = isAllowanceInc(t) || isAllowanceExp(t);
+      const isSel = selectable && selectedTxIds.has(t.id);
       const fundBadge = isAllow
         ? `<span class="fund-badge-pill fund-badge-allowance" title="Church Monthly Allowance Fund">💳 Allowance</span>`
         : `<span class="fund-badge-pill fund-badge-general" title="General Youth Fund">🏢 General</span>`;
-      return `<tr><td>${t.date}</td><td>${t.type}</td><td><span class="tag">${esc(t.category)}</span> <span class="mute">${esc(memName(t.memberId))}</span></td><td>${fundBadge}</td><td>${esc(evName(t.eventId))}</td>
+      return `<tr style="${isSel ? 'background:rgba(34,211,238,.1)' : ''}">${selectable ? `<td><input type="checkbox" class="tx-sel-chk" data-id="${t.id}" ${isSel ? 'checked' : ''} onchange="toggleTxSelect('${t.id}',this.checked)" style="width:auto"></td>` : ''}<td>${t.date}</td><td>${t.type}</td><td><span class="tag">${esc(t.category)}</span> <span class="mute">${esc(memName(t.memberId) || cleanNotes(t.notes))}</span></td><td>${fundBadge}</td><td>${esc(evName(t.eventId))}</td>
     <td class="${t.type === 'income' ? 'pos' : 'neg'}">${t.type === 'income' ? '+' : '-'}${money(t.amount)}</td>
     <td><span class="tag ${t.status === 'void' ? '' : 'ok'}">${t.status === 'void' ? 'void' : 'saved'}</span></td>
-    ${actions ? `<td>${t.receipt ? `<button class="btn sm ghost" onclick="showReceipt('${t.id}')">🧾</button> ` : ''}<button class="btn sm ghost" onclick="showLog('${t.id}')">🕘</button>${t.status !== 'void' ? ` <button class="btn sm ghost danger" onclick="voidTx('${t.id}')">Void</button>` : ''}</td>` : ''}</tr>`;
+    ${actions ? `<td style="white-space:nowrap">${t.receipt ? `<button class="btn sm ghost" onclick="showReceipt('${t.id}')">🧾</button> ` : ''}<button class="btn sm ghost" onclick="showLog('${t.id}')">🕘</button> <button class="btn sm ghost danger" title="Delete permanently" onclick="deleteSelectedTxs(['${t.id}'])">🗑️</button></td>` : ''}</tr>`;
     }).join('') + '</table>';
 }
 
@@ -2314,7 +2402,10 @@ const views = {
     <div class="card"><h2>Recent transactions</h2>${txRows([...S.transactions].filter(inPeriod).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6), false)}</div>`;
   },
   transactions() {
-    let l = [...S.transactions].filter(inPeriod).sort((a, b) => b.date.localeCompare(a.date));
+    const recentIds = getRecentUploadIds();
+    const recentSet = new Set(recentIds);
+    let l = [...S.transactions].filter(inPeriod);
+    if (filter.recentOnly && recentSet.size) l = l.filter(t => recentSet.has(t.id));
     if (filter.type) l = l.filter(t => t.type === filter.type);
     if (filter.event) l = l.filter(t => t.eventId === filter.event);
     if (filter.fund) {
@@ -2322,13 +2413,36 @@ const views = {
     }
     if (filter.allowanceOnly) l = l.filter(t => isAllowanceInc(t) || isAllowanceExp(t));
     if (filter.q) l = l.filter(t => (t.category + t.notes + memName(t.memberId)).toLowerCase().includes(filter.q.toLowerCase()));
-    return `<div class="toolbar"><input id="f-q" placeholder="Search…" value="${esc(filter.q)}" style="max-width:200px">
-      <select id="f-type" style="max-width:130px"><option value="">All types</option><option ${filter.type === 'income' ? 'selected' : ''}>income</option><option ${filter.type === 'expense' ? 'selected' : ''}>expense</option></select>
-      <select id="f-fund" style="max-width:170px"><option value="">All funds</option><option value="general" ${filter.fund === 'general' ? 'selected' : ''}>🏢 General Fund</option><option value="allowance" ${filter.fund === 'allowance' ? 'selected' : ''}>💳 Church Allowance</option></select>
-      <select id="f-event" style="max-width:170px"><option value="">All events</option>${S.events.map(e => `<option value="${e.id}" ${filter.event === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
+    if (filter.sort === 'recent') {
+      l.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || b.date.localeCompare(a.date));
+    } else {
+      l.sort((a, b) => b.date.localeCompare(a.date));
+    }
+
+    // Keep selectedTxIds clean against existing transactions
+    const validIds = new Set(S.transactions.map(t => t.id));
+    [...selectedTxIds].forEach(id => { if (!validIds.has(id)) selectedTxIds.delete(id); });
+    const selCount = selectedTxIds.size;
+
+    const selBar = selCount ? `
+      <div class="ms-save-all-bar" style="margin:0 0 12px;border-color:rgba(251,113,133,.5);background:rgba(251,113,133,.12)">
+        <span>☑ <b>${selCount}</b> ${selCount === 1 ? 'transaction' : 'transactions'} selected${filter.recentOnly ? ' (recent upload)' : ''}</span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn sm ghost" onclick="clearTxSelection()">Clear selection</button>
+          <button type="button" class="btn sm alt" onclick="deleteSelectedTxs()">🗑️ Delete Selected (${selCount})</button>
+        </div>
+      </div>` : '';
+
+    return `<div class="toolbar"><input id="f-q" placeholder="Search…" value="${esc(filter.q)}" style="max-width:190px">
+      <select id="f-type" style="max-width:125px"><option value="">All types</option><option ${filter.type === 'income' ? 'selected' : ''}>income</option><option ${filter.type === 'expense' ? 'selected' : ''}>expense</option></select>
+      <select id="f-fund" style="max-width:160px"><option value="">All funds</option><option value="general" ${filter.fund === 'general' ? 'selected' : ''}>🏢 General Fund</option><option value="allowance" ${filter.fund === 'allowance' ? 'selected' : ''}>💳 Church Allowance</option></select>
+      <select id="f-sort" style="max-width:170px"><option value="date" ${filter.sort !== 'recent' ? 'selected' : ''}>Sort: Date (newest)</option><option value="recent" ${filter.sort === 'recent' ? 'selected' : ''}>Sort: Recently uploaded</option></select>
+      <select id="f-event" style="max-width:155px"><option value="">All events</option>${S.events.map(e => `<option value="${e.id}" ${filter.event === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
+      ${recentIds.length ? `<button type="button" class="btn sm ${filter.recentOnly ? '' : 'ghost'}" style="${filter.recentOnly ? 'background:linear-gradient(135deg,#06b6d4,#3b82f6)' : 'border-color:rgba(34,211,238,.45);color:var(--b)'};padding:6px 12px" onclick="${filter.recentOnly ? 'clearTxSelection()' : 'selectRecentUpload()'}">⚡ ${filter.recentOnly ? 'Show all' : `Select Recent Upload (${recentIds.length})`}</button>` : ''}
       <button class="btn sm ${filter.allowanceOnly ? 'alt' : 'ghost'}" id="f-allowance-toggle" style="padding:6px 12px">💳 ${filter.allowanceOnly ? 'Show all' : 'Allowance only'}</button>
       </div>
-      <div class="card">${txRows(l)}</div>`;
+      ${selBar}
+      <div class="card">${txRows(l, true, true)}</div>`;
   },
   events() {
     return `<div class="toolbar"><button class="btn" id="new-event">+ New event</button></div><div class="grid g2">${S.events.map(e => { const s = eventStats(e);
@@ -2959,6 +3073,7 @@ function render() {
   on('#f-q', 'oninput', e => { filter.q = e.target.value; const p = e.target.selectionStart; render(); const q = $('#f-q'); q.focus(); q.setSelectionRange(p, p); });
   on('#f-type', 'onchange', e => { filter.type = e.target.value; render(); });
   on('#f-fund', 'onchange', e => { filter.fund = e.target.value; render(); });
+  on('#f-sort', 'onchange', e => { filter.sort = e.target.value; render(); });
   on('#f-event', 'onchange', e => { filter.event = e.target.value; render(); });
   on('#f-allowance-toggle', 'onclick', () => { filter.allowanceOnly = !filter.allowanceOnly; render(); });
 

@@ -208,10 +208,15 @@
             }
 
             if (st) st.textContent = `Uploading ${rows.length} transactions…`;
+            const uploadedIds = [];
             for (let i = 0; i < rows.length; i += 100) {
               const chunk = rows.slice(i, i + 100);
-              const res = await sb.from('transactions').insert(chunk);
+              const res = await sb.from('transactions').insert(chunk).select('id');
               if (res.error) throw res.error;
+              if (res.data) uploadedIds.push(...res.data.map(r => r.id));
+            }
+            if (uploadedIds.length && typeof window.recordUploadBatch === 'function') {
+              window.recordUploadBatch(uploadedIds, `JSON Backup (${uploadedIds.length})`);
             }
 
             if (d.skippedSlots && typeof d.skippedSlots === 'object') {

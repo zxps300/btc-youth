@@ -1,4 +1,4 @@
-const CACHE = 'btc-youth-v18';
+const CACHE = 'btc-youth-v20';
 const SHELL = ['./', 'index.html', 'cloud.html', 'style.css', 'app-core.js', 'cloud.js', 'import-excel.js', 'features.js',
   'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
@@ -13,8 +13,8 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== location.origin) return; // database/API calls always go to the network
-  // network first so updates show up, fall back to cache when offline
-  e.respondWith(fetch(req).then(res => {
+  // network first (bypassing HTTP cache) so updates show up immediately on mobile & desktop
+  e.respondWith(fetch(req, { cache: 'no-cache' }).then(res => {
     const copy = res.clone();
     caches.open(CACHE).then(c => c.put(req, copy));
     return res;
