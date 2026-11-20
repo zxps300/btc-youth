@@ -12,14 +12,72 @@ const isT = () => me?.role === 'treasurer' || isOwnerEmail(session?.user?.email)
 const canAdd = () => (me && me.role !== 'viewer') || isOwnerEmail(session?.user?.email);
 const fail = e => alert(e?.message || String(e));
 
+let _prefsRowId = null;
+function collectLocalPrefs() {
+  const skippedSlots = typeof getSkipReasons === 'function' ? getSkipReasons() : {};
+  const annual = {};
+  Object.keys(localStorage).filter(k => k.startsWith('btc-annual-')).forEach(k => {
+    try { annual[k.slice('btc-annual-'.length)] = JSON.parse(localStorage.getItem(k) || '{}'); } catch (_) {}
+  });
+  return { skippedSlots, annual };
+}
+function applyCloudPrefs(payload) {
+  if (!payload || typeof payload !== 'object') return;
+  if (payload.skippedSlots && typeof payload.skippedSlots === 'object') {
+    localStorage.setItem('btc-skipped-slots', JSON.stringify(payload.skippedSlots));
+  }
+  // Replace local annual overrides with the synced cloud copy so cleared notes/adjustments also sync
+  Object.keys(localStorage).filter(k => k.startsWith('btc-annual-')).forEach(k => localStorage.removeItem(k));
+  if (payload.annual && typeof payload.annual === 'object') {
+    Object.entries(payload.annual).forEach(([yr, obj]) => {
+      if (obj && typeof obj === 'object') localStorage.setItem('btc-annual-' + yr, JSON.stringify(obj));
+    });
+  }
+}
+let _prefsTimer = null;
+window.onPrefsChanged = function() {
+  if (!session) return;
+  clearTimeout(_prefsTimer);
+  _prefsTimer = setTimeout(async () => {
+    try {
+      const action = JSON.stringify(collectLocalPrefs());
+      if (_prefsRowId) {
+        const res = await sb.from('audit_log').update({ action, at: new Date().toISOString() }).eq('id', _prefsRowId).select('id');
+        if (!res.error && res.data && res.data.length) return;
+      }
+      await sb.from('audit_log').delete().eq('actor_name', '__btc_prefs__');
+      const ins = await sb.from('audit_log').insert({ tx_id: null, actor_name: '__btc_prefs__', action }).select('id').single();
+      if (!ins.error && ins.data) _prefsRowId = ins.data.id;
+    } catch (err) {
+      console.error('Could not sync preferences:', err);
+    }
+  }, 250);
+};
+
 /* ---------- data ---------- */
 async function loadAll() {
   const names = ['events', 'members', 'categories', 'transactions', 'audit_log', 'profiles'];
   const res = await Promise.all(names.map(t => sb.from(t).select('*')));
   const bad = res.find(r => r.error); if (bad) throw bad.error;
   const [ev, mem, cat, tx, au, pr] = res.map(r => r.data);
+
+  // Sync missing-entry reasons & annual summary adjustments/notes from cloud
+  const prefRows = au.filter(a => a.actor_name === '__btc_prefs__').sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  if (prefRows.length) {
+    _prefsRowId = prefRows[0].id;
+    try { applyCloudPrefs(JSON.parse(prefRows[0].action)); } catch (_) {}
+  } else {
+    _prefsRowId = null;
+    const localPrefs = collectLocalPrefs();
+    if (Object.keys(localPrefs.skippedSlots).length || Object.keys(localPrefs.annual).length) {
+      window.onPrefsChanged();
+    }
+  }
+
   const logs = {};
-  au.sort((a, b) => a.at.localeCompare(b.at)).forEach(a => (logs[a.tx_id] ??= []).push(`${a.action} by ${a.actor_name || 'unknown'} · ${new Date(a.at).toLocaleString()}`));
+  au.filter(a => a.tx_id && a.actor_name !== '__btc_prefs__')
+    .sort((a, b) => a.at.localeCompare(b.at))
+    .forEach(a => (logs[a.tx_id] ??= []).push(`${a.action} by ${a.actor_name || 'unknown'} · ${new Date(a.at).toLocaleString()}`));
   const cur = localStorage.getItem('btc-cloud-currency') || '₱';
   me = pr.find(p => p.id === session.user.id) || { role: 'viewer', name: session.user.email };
   let inCats = cat.filter(c => c.type === 'income').map(c => c.name);

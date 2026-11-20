@@ -271,6 +271,7 @@ window.setSkipReason = function(slotKey, reason) {
   if (clean) map[slotKey] = clean;
   else delete map[slotKey];
   localStorage.setItem('btc-skipped-slots', JSON.stringify(map));
+  if (typeof window.onPrefsChanged === 'function') window.onPrefsChanged();
   render();
 };
 
@@ -279,6 +280,7 @@ window.toggleSkipSlot = function(slotKey, label) {
   if (map[slotKey]) {
     delete map[slotKey];
     localStorage.setItem('btc-skipped-slots', JSON.stringify(map));
+    if (typeof window.onPrefsChanged === 'function') window.onPrefsChanged();
     render();
     showToast('Restored slot');
   } else {
@@ -639,6 +641,7 @@ function patchAnnualOverrides(year, fn) {
   const o = getAnnualOverrides(year);
   fn(o);
   localStorage.setItem('btc-annual-' + year, JSON.stringify(o));
+  if (typeof window.onPrefsChanged === 'function') window.onPrefsChanged();
   render();
 }
 const annualNum = v => { const n = parseMoneyInput(v); return isNaN(n) ? null : n; };

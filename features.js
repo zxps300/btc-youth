@@ -221,6 +221,7 @@
 
             if (d.skippedSlots && typeof d.skippedSlots === 'object') {
               localStorage.setItem('btc-skipped-slots', JSON.stringify(d.skippedSlots));
+              if (typeof window.onPrefsChanged === 'function') window.onPrefsChanged();
             }
             if (d.currency) {
               S.currency = d.currency;
