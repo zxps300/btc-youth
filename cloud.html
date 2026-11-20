@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>BTC Youth Fund Tracker</title>
 <meta name="description" content="Monitor BTC Youth ministry funds: income, expenses, event budgets, member contributions and reports.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -21,19 +21,19 @@
 <aside class="sidebar">
   <div class="brand"><span class="logo">B</span><div><strong>BTC Youth</strong><small>Fund Tracker</small></div></div>
   <nav id="nav">
-    <button class="nav-btn active" data-view="monthly" id="nav-monthly">📅 Monthly Sheet</button>
-    <button class="nav-btn" data-view="dashboard" id="nav-dashboard">📊 Dashboard</button>
-    <button class="nav-btn" data-view="transactions" id="nav-transactions">💸 Transactions</button>
-    <button class="nav-btn" data-view="events" id="nav-events">🎯 Events &amp; Budgets</button>
-    <button class="nav-btn" data-view="members" id="nav-members">👥 Members</button>
-    <button class="nav-btn" data-view="reports" id="nav-reports">📄 Reports</button>
-    <button class="nav-btn" data-view="team" id="nav-team">🔑 Team &amp; roles</button>
+    <button class="nav-btn active" data-view="monthly" id="nav-monthly"><span class="ni">📅</span><span class="nl nl-full">Monthly Sheet</span><span class="nl nl-short">Monthly</span></button>
+    <button class="nav-btn" data-view="dashboard" id="nav-dashboard"><span class="ni">📊</span><span class="nl nl-full">Dashboard</span><span class="nl nl-short">Home</span></button>
+    <button class="nav-btn" data-view="transactions" id="nav-transactions"><span class="ni">💸</span><span class="nl nl-full">Transactions</span><span class="nl nl-short">Ledger</span></button>
+    <button class="nav-btn" data-view="events" id="nav-events"><span class="ni">🎯</span><span class="nl nl-full">Events &amp; Budgets</span><span class="nl nl-short">Events</span></button>
+    <button class="nav-btn" data-view="members" id="nav-members"><span class="ni">👥</span><span class="nl nl-full">Members</span><span class="nl nl-short">Members</span></button>
+    <button class="nav-btn" data-view="reports" id="nav-reports"><span class="ni">📄</span><span class="nl nl-full">Reports</span><span class="nl nl-short">Reports</span></button>
+    <button class="nav-btn" data-view="team" id="nav-team"><span class="ni">🔑</span><span class="nl nl-full">Team &amp; roles</span><span class="nl nl-short">Team</span></button>
   </nav>
   <div class="side-foot">
     <div class="user" id="user-label"></div>
     <label class="side-currency">Currency <input id="currency" maxlength="4"></label>
-    <button class="btn ghost" id="tools-btn">⚙️ Tools &amp; Data</button>
-    <button class="btn ghost" id="logout-btn">Sign out</button>
+    <button class="btn ghost" id="tools-btn" aria-label="Tools and data"><span class="ic">⚙️</span><span class="lbl"> Tools &amp; Data</span></button>
+    <button class="btn ghost" id="logout-btn" aria-label="Sign out"><span class="ic">🚪</span><span class="lbl"> Sign out</span></button>
   </div>
 </aside>
 

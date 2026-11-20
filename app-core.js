@@ -35,6 +35,8 @@ if (!S.expenseCats.includes('Monthly Allowance')) S.expenseCats.unshift('Monthly
 let view = 'monthly', filter = { q: '', type: '', event: '', allowanceOnly: false, sort: 'date', recentOnly: false }, period = 'all';
 let selectedTxIds = new Set();
 let activeMonth = today().slice(0, 7);
+let msFundTab = 'all'; // 'all' | 'general' | 'allowance'
+window.setMsFundTab = function(tab) { msFundTab = tab || 'all'; render(); };
 let reportMode = localStorage.getItem('btc-rep-mode') || 'monthly'; // 'monthly' | 'annual'
 let reportMonth = localStorage.getItem('btc-rep-month') || '';
 let reportYear = localStorage.getItem('btc-rep-year') || '';
@@ -1756,17 +1758,17 @@ function chart() {
 function txRows(list, actions = true, selectable = false) {
   if (!list.length) return '<div class="empty">No transactions yet.</div>';
   const allChecked = selectable && list.length > 0 && list.every(t => selectedTxIds.has(t.id));
-  return `<table><tr>${selectable ? `<th style="width:32px"><input type="checkbox" ${allChecked ? 'checked' : ''} onchange="toggleSelectAllVisible(this.checked)" style="width:auto" title="Select all shown"></th>` : ''}<th>Date</th><th>Type</th><th>Category</th><th>Fund</th><th>Event</th><th>Amount</th><th>Status</th>${actions ? '<th></th>' : ''}</tr>` +
+  return `<table class="tx-table"><tr class="tx-head">${selectable ? `<th style="width:32px"><input type="checkbox" ${allChecked ? 'checked' : ''} onchange="toggleSelectAllVisible(this.checked)" style="width:auto" title="Select all shown"></th>` : ''}<th>Date</th><th>Type</th><th>Category</th><th>Fund</th><th>Event</th><th>Amount</th><th>Status</th>${actions ? '<th></th>' : ''}</tr>` +
     list.map(t => {
       const isAllow = isAllowanceInc(t) || isAllowanceExp(t);
       const isSel = selectable && selectedTxIds.has(t.id);
       const fundBadge = isAllow
         ? `<span class="fund-badge-pill fund-badge-allowance" title="Church Monthly Allowance Fund">💳 Allowance</span>`
         : `<span class="fund-badge-pill fund-badge-general" title="General Youth Fund">🏢 General</span>`;
-      return `<tr style="${isSel ? 'background:rgba(34,211,238,.1)' : ''}">${selectable ? `<td><input type="checkbox" class="tx-sel-chk" data-id="${t.id}" ${isSel ? 'checked' : ''} onchange="toggleTxSelect('${t.id}',this.checked)" style="width:auto"></td>` : ''}<td>${t.date}</td><td>${t.type}</td><td><span class="tag">${esc(t.category)}</span> <span class="mute">${esc(memName(t.memberId) || cleanNotes(t.notes))}</span></td><td>${fundBadge}</td><td>${esc(evName(t.eventId))}</td>
-    <td class="${t.type === 'income' ? 'pos' : 'neg'}">${t.type === 'income' ? '+' : '-'}${money(t.amount)}</td>
-    <td><span class="tag ${t.status === 'void' ? '' : 'ok'}">${t.status === 'void' ? 'void' : 'saved'}</span></td>
-    ${actions ? `<td style="white-space:nowrap">${t.receipt ? `<button class="btn sm ghost" onclick="showReceipt('${t.id}')">🧾</button> ` : ''}<button class="btn sm ghost" onclick="showLog('${t.id}')">🕘</button> <button class="btn sm ghost danger" title="Delete permanently" onclick="deleteSelectedTxs(['${t.id}'])">🗑️</button></td>` : ''}</tr>`;
+      return `<tr style="${isSel ? 'background:rgba(34,211,238,.1)' : ''}">${selectable ? `<td class="c-sel"><input type="checkbox" class="tx-sel-chk" data-id="${t.id}" ${isSel ? 'checked' : ''} onchange="toggleTxSelect('${t.id}',this.checked)" style="width:auto"></td>` : ''}<td class="c-date">${t.date}</td><td class="c-type">${t.type}</td><td class="c-cat"><span class="tag">${esc(t.category)}</span> <span class="mute">${esc(memName(t.memberId) || cleanNotes(t.notes))}</span></td><td class="c-fund">${fundBadge}</td><td class="c-event ${evName(t.eventId) === '—' ? 'is-empty' : ''}">${esc(evName(t.eventId))}</td>
+    <td class="c-amt ${t.type === 'income' ? 'pos' : 'neg'}">${t.type === 'income' ? '+' : '-'}${money(t.amount)}</td>
+    <td class="c-status"><span class="tag ${t.status === 'void' ? '' : 'ok'}">${t.status === 'void' ? 'void' : 'saved'}</span></td>
+    ${actions ? `<td class="c-act" style="white-space:nowrap">${t.receipt ? `<button class="btn sm ghost" onclick="showReceipt('${t.id}')">🧾</button> ` : ''}<button class="btn sm ghost" onclick="showLog('${t.id}')">🕘</button> <button class="btn sm ghost danger" title="Delete permanently" onclick="deleteSelectedTxs(['${t.id}'])">🗑️</button></td>` : ''}</tr>`;
     }).join('') + '</table>';
 }
 
@@ -2180,8 +2182,16 @@ const views = {
         </div>
       ` : ''}
 
+      <!-- Quick Fund View Switcher (keeps mobile clean & easy to navigate) -->
+      <div class="ms-fund-tabs" role="tablist" aria-label="Filter funds">
+        <button type="button" class="ms-fund-tab ${msFundTab === 'all' ? 'active' : ''}" onclick="setMsFundTab('all')">📋 All Funds</button>
+        <button type="button" class="ms-fund-tab ${msFundTab === 'general' ? 'active' : ''}" onclick="setMsFundTab('general')">🏢 Youth Fund</button>
+        <button type="button" class="ms-fund-tab ${msFundTab === 'allowance' ? 'active' : ''}" onclick="setMsFundTab('allowance')">💳 Allowance</button>
+      </div>
+
+      ${(msFundTab === 'all' || msFundTab === 'general') ? `
       <!-- 4A. CARD 1: YOUTH GENERAL FUND (Offerings & General Cash on Hand) -->
-      <div class="ms-sheet">
+      <div class="ms-sheet" id="ms-card-general">
         <div class="ms-card-head">
           <div>
             <div style="font-size:16px;font-weight:700">🏢 Youth General Fund — ${L.monthTitle}</div>
@@ -2293,9 +2303,11 @@ const views = {
           <div class="ms-gt-val ${L.netCashOnHand < 0 ? 'neg' : ''}">${money(L.netCashOnHand)}</div>
         </div>
       </div>
+      ` : ''}
 
+      ${(msFundTab === 'all' || msFundTab === 'allowance') ? `
       <!-- 4B. CARD 2: SEPARATED ALLOCATION FROM CHURCH FUNDS (MONTHLY ALLOWANCE) -->
-      <div class="ms-sheet allowance-sheet">
+      <div class="ms-sheet allowance-sheet" id="ms-card-allowance">
         <div class="ms-card-head">
           <div>
             <div style="font-size:16px;font-weight:700;color:var(--b)">💳 Allocation from Church Funds — Monthly Allowance (${L.monthTitle})</div>
@@ -2358,6 +2370,7 @@ const views = {
           <div class="ms-gt-val ${allowIsOk ? '' : 'neg'}" style="${allowIsOk ? 'color:var(--b)' : ''}">${money(L.allow.remaining)}</div>
         </div>
       </div>
+      ` : ''}
     </div>`;
   },
   dashboard() {
@@ -2457,10 +2470,10 @@ const views = {
       <p class="mute">Event net: ${money(s.raised - s.spent)}</p></div>`; }).join('') || '<div class="empty card">No events yet. Create one to set a budget.</div>'}</div>`;
   },
   members() {
-    return `<div class="toolbar"><button class="btn" id="new-member">+ New member</button>${owingThisMonth().length ? '<button class="btn ghost" onclick="copyReminder()">🔔 Copy dues reminder</button>' : ''}</div><div class="card">${S.members.length ? `<table><tr><th>Member</th><th>Monthly dues</th><th>This month</th><th>Total paid</th><th>Target owed</th><th></th></tr>` +
+    return `<div class="toolbar"><button class="btn" id="new-member">+ New member</button>${owingThisMonth().length ? '<button class="btn ghost" onclick="copyReminder()">🔔 Copy dues reminder</button>' : ''}</div><div class="card">${S.members.length ? `<div class="annual-scroll"><table><tr><th>Member</th><th>Monthly dues</th><th>This month</th><th>Total paid</th><th>Target owed</th><th></th></tr>` +
       S.members.map(m => { const paid = sum(inc().filter(t => t.memberId === m.id)), owed = Math.max(m.due - paid, 0), pm = paidThisMonth(m);
         const status = !m.monthly ? '<span class="mute">—</span>' : pm >= m.monthly ? '<span class="tag ok">Paid ✔</span>' : `<span class="tag pending">Owes ${money(m.monthly - pm)}</span>`;
-        return `<tr><td>${esc(m.name)}<div class="mute">${esc(m.contact)}</div></td><td>${money(m.monthly || 0)}</td><td>${status}</td><td class="pos">${money(paid)}</td><td class="${owed ? 'neg' : 'pos'}">${m.due ? (owed ? money(owed) : 'Paid ✔') : '—'}</td><td><button class="btn sm ghost" onclick="memberForm('${m.id}')">Edit</button> <button class="btn sm ghost danger" onclick="delMember('${m.id}')">Delete</button></td></tr>`; }).join('') + '</table>' : '<div class="empty">No members yet.</div>'}</div>`;
+        return `<tr><td>${esc(m.name)}<div class="mute">${esc(m.contact)}</div></td><td>${money(m.monthly || 0)}</td><td>${status}</td><td class="pos">${money(paid)}</td><td class="${owed ? 'neg' : 'pos'}">${m.due ? (owed ? money(owed) : 'Paid ✔') : '—'}</td><td><button class="btn sm ghost" onclick="memberForm('${m.id}')">Edit</button> <button class="btn sm ghost danger" onclick="delMember('${m.id}')">Delete</button></td></tr>`; }).join('') + '</table></div>' : '<div class="empty">No members yet.</div>'}</div>`;
   },
   reports() {
     const sig = getSignatories();
@@ -3020,6 +3033,37 @@ const views = {
   }
 };
 
+/* ---------- mobile helpers ---------- */
+const collapsedSecs = new Set();
+function ensureFab() {
+  if (document.getElementById('fab-add')) return;
+  const b = document.createElement('button');
+  b.type = 'button'; b.id = 'fab-add'; b.className = 'fab'; b.setAttribute('aria-label', 'Quick add'); b.textContent = '＋';
+  b.onclick = () => window.openQuickAdd();
+  document.body.appendChild(b);
+}
+window.openQuickAdd = function() {
+  const canImport = typeof window.importExcelReport === 'function';
+  openModal(`<h2>＋ Quick Add</h2>
+    <p class="mute">What would you like to record?</p>
+    <div class="qa-grid">
+      <button type="button" class="qa-tile qa-inc" onclick="closeModal();txForm('income')"><span class="qa-ic">💰</span><strong>Income</strong><small>Offering, donation, dues</small></button>
+      <button type="button" class="qa-tile qa-exp" onclick="closeModal();txForm('expense')"><span class="qa-ic">🧾</span><strong>Expense</strong><small>General or allowance</small></button>
+      ${canImport ? '<button type="button" class="qa-tile" onclick="closeModal();window.importExcelReport()"><span class="qa-ic">📥</span><strong>Import Excel</strong><small>Upload a workbook</small></button>' : ''}
+      <button type="button" class="qa-tile" onclick="closeModal();openToolsModal()"><span class="qa-ic">⚙️</span><strong>Tools &amp; Data</strong><small>Backup, restore, PIN</small></button>
+    </div>
+    <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn ghost" onclick="closeModal()">Close</button></div>`);
+};
+document.addEventListener('click', e => {
+  const head = e.target.closest && e.target.closest('.ms-sec-head');
+  if (!head || e.target.closest('button, a, input, select, textarea')) return;
+  if (!window.matchMedia || !window.matchMedia('(max-width: 760px)').matches) return;
+  const sec = head.closest('.ms-section');
+  if (!sec || !sec.dataset.key) return;
+  sec.classList.toggle('collapsed');
+  if (sec.classList.contains('collapsed')) collapsedSecs.add(sec.dataset.key); else collapsedSecs.delete(sec.dataset.key);
+});
+
 function render() {
   $('#view').innerHTML = views[view]();
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
@@ -3058,6 +3102,20 @@ function render() {
       }
     };
   });
+
+  // ---- Mobile: quick-add FAB, collapsible sections, centre the active month ----
+  ensureFab();
+  const fab = document.getElementById('fab-add');
+  if (fab) fab.classList.toggle('hidden', typeof canAdd === 'function' ? !canAdd() : false);
+  document.querySelectorAll('#view .ms-sheet').forEach((sheet, si) => {
+    sheet.querySelectorAll('.ms-section').forEach((sec, i) => {
+      const key = view + ':' + si + ':' + i;
+      sec.dataset.key = key;
+      sec.classList.toggle('collapsed', collapsedSecs.has(key));
+    });
+  });
+  const stripEl = document.querySelector('.month-strip'), activePill = stripEl && stripEl.querySelector('.month-pill.active');
+  if (stripEl && activePill) stripEl.scrollLeft = activePill.offsetLeft - stripEl.clientWidth / 2 + activePill.offsetWidth / 2;
 
   const on = (id, ev, fn) => { const el = $(id); if (el) el[ev] = fn; };
   on('#new-event', 'onclick', () => eventForm());
