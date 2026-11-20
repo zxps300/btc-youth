@@ -343,7 +343,8 @@ function applyRole() {
   show('#cat-btn', isT()); show('#nav-team', false); show('#add-income-btn', canAdd()); show('#add-expense-btn', canAdd());
   show('#batch-offerings-btn', canAdd());
   show('#import-btn', isT() && legacy && (legacy.transactions?.length || legacy.events?.length || legacy.members?.length) && !localStorage.getItem(KEY + '-imported'));
-  $('#user-label').innerHTML = `${esc(me.name)}<small>Owner</small>`;
+  const activeTxCount = S.transactions.filter(t => t.status !== 'void').length;
+  $('#user-label').innerHTML = `${esc(me.name)}<small>☁️ Cloud · ${activeTxCount} entries</small>`;
 }
 window.importLegacy = importLegacy;
 if ($('#cat-btn')) $('#cat-btn').onclick = () => catForm();
@@ -485,7 +486,8 @@ async function syncNow(showMsg = false) {
   _lastSyncAt = now;
   try {
     await refresh();
-    if (showMsg && typeof showToast === 'function') showToast('✔ Synced with cloud');
+    const n = S.transactions.filter(t => t.status !== 'void').length;
+    if (showMsg && typeof showToast === 'function') showToast(`✔ Synced with cloud (${n} entries)`);
   } catch (err) {
     if (showMsg) fail(err);
   }
